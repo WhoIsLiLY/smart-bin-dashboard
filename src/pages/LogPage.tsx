@@ -14,7 +14,9 @@ import {
   Bot,
   AlertCircle,
   CheckCircle,
-  RefreshCw
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-react';
 import { socket } from '../services/socket';
 
@@ -81,17 +83,32 @@ const useLogData = () => {
       toast.success('Log baru diterima!', { icon: '🛰️' });
     };
 
+    const handleCorrectionUpdate = (updatedLog: any) => {
+      console.log('Received correction_update event:', updatedLog);
+      setLogs(prevLogs =>
+        prevLogs.map(log =>
+          log.id === updatedLog.id
+            ? { ...updatedLog, image_path: `${API_BASE_URL}/${updatedLog.image_path.replace(/\\/g, '/')}` }
+            : log
+        )
+      );
+      setLastUpdate(new Date());
+      toast.success(`Log #${updatedLog.id} telah dikoreksi!`, { icon: '✅' });
+    };
+
     const onConnect = () => setIsConnected(true);
     const onDisconnect = () => setIsConnected(false);
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('new_log', handleNewLog);
+    socket.on('correction_update', handleCorrectionUpdate);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('new_log', handleNewLog);
+      socket.off('correction_update', handleCorrectionUpdate);
     };
   }, [initialFetch]);
 
@@ -103,7 +120,18 @@ const useLogData = () => {
     // you would need to implement a DELETE API endpoint.
   }, []);
 
-  return { logs, isLoading, isConnected, lastUpdate, refreshLogs: initialFetch, clearLogs };
+  // Define updateLogCorrection function
+  const updateLogCorrection = useCallback((updatedLog: any) => {
+    setLogs(prevLogs =>
+      prevLogs.map(log =>
+        log.id === updatedLog.id
+          ? { ...updatedLog, image_path: `${API_BASE_URL}/${updatedLog.image_path.replace(/\\/g, '/')}` }
+          : log
+      )
+    );
+  }, []);
+
+  return { logs, isLoading, isConnected, lastUpdate, refreshLogs: initialFetch, clearLogs, updateLogCorrection };
 };
 
 // UI Components (StatusBadge, LabelBadge, etc.)
@@ -224,7 +252,7 @@ const FilterPanel = ({
 };
 
 const LogPage = () => {
-  const { logs, isLoading, lastUpdate, refreshLogs, clearLogs } = useLogData();
+  const { logs, isLoading, lastUpdate, refreshLogs, clearLogs, updateLogCorrection } = useLogData();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedLog, setSelectedLog] = useState<ClassificationLog | null>(null);
@@ -273,13 +301,7 @@ const LogPage = () => {
       const updatedLog = await response.json();
 
       // Perbarui state 'logs' agar UI langsung berubah tanpa refresh
-      setLogs(prevLogs =>
-        prevLogs.map(log =>
-          log.id === updatedLog.id
-            ? { ...updatedLog, image_path: `${API_BASE_URL}/${updatedLog.image_path.replace(/\\/g, '/')}` }
-            : log
-        )
-      );
+      updateLogCorrection(updatedLog);
 
       // Tutup modal setelah berhasil
       setSelectedLog(prevSelected =>
@@ -537,13 +559,15 @@ const LogPage = () => {
                             onClick={() => handleKoreksi(selectedLog.id, 'benar')}
                             className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 font-medium bg-green-600 hover:bg-green-700 text-white"
                           >
-                            <span>✅ Benar</span>
+                            <ThumbsUp size={16} />
+                            <span>Benar</span>
                           </button>
                           <button
                             onClick={() => handleKoreksi(selectedLog.id, 'salah')}
                             className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 font-medium bg-red-600 hover:bg-red-700 text-white"
                           >
-                            <span>❌ Salah</span>
+                            <ThumbsDown size={16} />
+                            <span>Salah</span>
                           </button>
                         </div>
                       </>

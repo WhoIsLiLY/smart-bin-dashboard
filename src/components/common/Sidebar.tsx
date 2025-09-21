@@ -1,15 +1,57 @@
-// src/components/common/Sidebar.tsx
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChartPie, faStream } from '@fortawesome/free-solid-svg-icons';
+import { socket } from '../../services/socket';
 
-// Placeholder untuk Device Status Component
-const DeviceStatus = () => (
-    <div className="flex items-center p-3 rounded-lg bg-gray-950">
-        <span className="h-3 w-3 rounded-full bg-green-500 mr-3 animate-pulse"></span>
-        <span className="text-sm font-medium text-green-400">Perangkat Online</span>
+// --- Komponen Baru untuk Status Perangkat ---
+const DeviceStatus = () => {
+  const [status, setStatus] = useState('offline');
+  const [deviceId, setDeviceId] = useState('N/A');
+
+  useEffect(() => {
+    // Handler untuk menerima update status
+    const handleStatusUpdate = (data: { status: string; id: string }) => {
+      setStatus(data.status);
+      setDeviceId(data.id);
+    };
+
+    // Dengarkan event dari server
+    socket.on('device_status_update', handleStatusUpdate);
+    
+    // Meminta status awal saat komponen pertama kali dimuat
+    // (menggunakan 'connect' event dari socket.io)
+    socket.on('connect', () => {
+      // Tidak perlu fetch manual, server akan mengirim status saat kita terhubung
+      console.log("Terhubung ke server, menunggu status perangkat...");
+    });
+
+
+    // Cleanup listener saat komponen unmount
+    return () => {
+      socket.off('device_status_update', handleStatusUpdate);
+      socket.off('connect');
+    };
+  }, []);
+
+  const isOnline = status === 'online';
+  const statusConfig = {
+    color: isOnline ? 'bg-green-500' : 'bg-red-500',
+    text: isOnline ? 'Perangkat Online' : 'Perangkat Offline',
+    textColor: isOnline ? 'text-green-400' : 'text-red-400'
+  };
+
+  return (
+    <div className="flex items-center p-3 rounded-lg bg-gray-900 transition-all">
+      <span className={`h-3 w-3 rounded-full mr-3 ${statusConfig.color} ${isOnline ? 'animate-pulse' : ''}`}></span>
+      <div>
+        <span className={`text-sm font-medium ${statusConfig.textColor}`}>{statusConfig.text}</span>
+        <p className="text-xs text-gray-500">{deviceId}</p>
+      </div>
     </div>
-);
+  );
+};
+
 
 const Sidebar = () => {
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
