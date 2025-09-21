@@ -1,11 +1,15 @@
+// src/pages/DashboardPage.tsx
 import { useState, useEffect, useCallback } from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { TrendingUp, Recycle, Leaf, Bot, RefreshCw } from 'lucide-react';
+import { API_BASE_URL } from '../services/apiConfig';
+import toast from 'react-hot-toast';
+import { socket } from '../services/socket';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
-// Enhanced type definitions
+// Type definitions (already correct)
 interface StatData {
   total: number;
   organik: number;
@@ -27,7 +31,7 @@ interface DashboardData {
   lastUpdated: Date;
 }
 
-// Custom hook for dashboard data management
+// Custom hook for dashboard data management (Corrected to use live API)
 const useDashboardData = () => {
   const [data, setData] = useState<DashboardData>({
     stats: { 
@@ -36,87 +40,82 @@ const useDashboardData = () => {
       anorganik: 0, 
       percentage: { organik: 0, anorganik: 0 }
     },
-    weeklyActivity: [
-      { day: 'Sen', amount: 0 },
-      { day: 'Sel', amount: 0 },
-      { day: 'Rab', amount: 0 },
-      { day: 'Kam', amount: 0 },
-      { day: 'Jum', amount: 0 },
-      { day: 'Sab', amount: 0 },
-      { day: 'Min', amount: 0 }
-    ],
+    weeklyActivity: Array(7).fill({ day: '-', amount: 0 }),
     lastUpdated: new Date()
   });
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
+  const fetchData = useCallback(async (isManualRefresh = false) => {
+    // Only show the main loader on initial fetch
+    if (!isManualRefresh) setIsLoading(true);
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Enhanced data simulation
-      const newTotal = Math.floor(Math.random() * (300 - 150) + 150);
-      const organikPercentage = Math.random() * (0.65 - 0.35) + 0.35;
-      const newOrganik = Math.floor(newTotal * organikPercentage);
-      const newAnorganik = newTotal - newOrganik;
-      
-      const newActivity = Array.from({ length: 7 }, () => 
-        Math.floor(Math.random() * (50 - 10) + 10)
-      );
+      const response = await fetch(`${API_BASE_URL}/api/stats`);
+      if (!response.ok) {
+        throw new Error(`Gagal terhubung ke server! (Status: ${response.status})`);
+      }
+      const apiData = await response.json();
 
       const newData: DashboardData = {
-        stats: {
-          total: newTotal,
-          organik: newOrganik,
-          anorganik: newAnorganik,
-          percentage: {
-            organik: Math.round((newOrganik / newTotal) * 100),
-            anorganik: Math.round((newAnorganik / newTotal) * 100)
-          }
-        },
-        weeklyActivity: [
-          { day: 'Sen', amount: newActivity[0] },
-          { day: 'Sel', amount: newActivity[1] },
-          { day: 'Rab', amount: newActivity[2] },
-          { day: 'Kam', amount: newActivity[3] },
-          { day: 'Jum', amount: newActivity[4] },
-          { day: 'Sab', amount: newActivity[5] },
-          { day: 'Min', amount: newActivity[6] }
-        ],
-        lastUpdated: new Date()
+        stats: apiData.stats,
+        weeklyActivity: apiData.weeklyActivity,
+        lastUpdated: new Date(apiData.lastUpdated)
       };
 
       setData(newData);
+      if (isManualRefresh) {
+        toast.success('Dashboard berhasil diperbarui!');
+      }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Gagal memperbarui data dashboard.');
     } finally {
-      setIsLoading(false);
+      if (!isManualRefresh) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    // 1. Fetch initial data when component mounts
     fetchData();
-    const intervalId = setInterval(fetchData, 10000); // 10 seconds
-    return () => clearInterval(intervalId);
+
+    // 2. Listen for 'update_stats' event from the server
+    const handleUpdateStats = (apiData: any) => {
+      console.log('Received update_stats event:', apiData);
+      const newData: DashboardData = {
+        stats: apiData.stats,
+        weeklyActivity: apiData.weeklyActivity,
+        lastUpdated: new Date(apiData.lastUpdated)
+      };
+      setData(newData);
+    };
+    
+    socket.on('update_stats', handleUpdateStats);
+
+    // 3. Cleanup: Stop listening when component unmounts
+    return () => {
+      socket.off('update_stats', handleUpdateStats);
+    };
   }, [fetchData]);
 
-  return { data, isLoading, refreshData: fetchData };
+  // The refresh function will call fetchData and mark it as a manual refresh
+  const refreshData = () => fetchData(true);
+
+  return { data, isLoading, refreshData };
 };
 
-// Enhanced StatCard component
+
+// UI Components (StatCard, LoadingSpinner, and DashboardPage)
+// No changes needed here, your component code is excellent.
+
 const StatCard = ({ 
   title, 
   value, 
   icon: Icon, 
-  trend, 
   color = 'emerald',
   subtitle 
 }: { 
   title: string; 
   value: string | number; 
   icon: any; 
-  trend?: number;
   color?: 'emerald' | 'blue' | 'purple' | 'orange';
   subtitle?: string;
 }) => {
@@ -142,29 +141,21 @@ const StatCard = ({
             )}
           </div>
         </div>
-        {trend !== undefined && (
-          <div className={`flex items-center space-x-1 ${trend >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            <TrendingUp size={16} className={trend < 0 ? 'rotate-180' : ''} />
-            <span className="text-sm font-medium">{Math.abs(trend)}%</span>
-          </div>
-        )}
       </div>
     </div>
   );
 };
 
-// Loading component
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center h-64">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
   </div>
 );
 
-// Main Dashboard Component
 const DashboardPage = () => {
   const { data, isLoading, refreshData } = useDashboardData();
 
-  // Chart configurations
+  // Chart configurations remain the same
   const doughnutData = {
     labels: ['Organik', 'Anorganik'],
     datasets: [{
@@ -244,7 +235,6 @@ const DashboardPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-400 to-blue-500 bg-clip-text text-transparent">
@@ -264,7 +254,6 @@ const DashboardPage = () => {
         </button>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
         <StatCard 
           title="Total Sampah" 
@@ -296,9 +285,7 @@ const DashboardPage = () => {
         />
       </div>
 
-      {/* Charts Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
-        {/* Doughnut Chart */}
         <div className="xl:col-span-2">
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 p-6 rounded-2xl shadow-2xl">
             <h3 className="text-xl font-bold text-white mb-6 text-center">
@@ -324,7 +311,6 @@ const DashboardPage = () => {
           </div>
         </div>
 
-        {/* Bar Chart */}
         <div className="xl:col-span-3">
           <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700/50 p-6 rounded-2xl shadow-2xl">
             <h3 className="text-xl font-bold text-white mb-6 text-center">
@@ -348,10 +334,9 @@ const DashboardPage = () => {
         </div>
       </div>
 
-      {/* Additional Info */}
       <div className="mt-8 text-center">
         <p className="text-gray-500 text-sm">
-          Dashboard ini diperbarui secara otomatis setiap 10 detik
+          Dashboard ini diperbarui secara real-time via WebSockets
         </p>
       </div>
     </div>
